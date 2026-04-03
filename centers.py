@@ -1,34 +1,29 @@
 import os
 import requests
-from fastapi import APIRouter, Query # Added Query for better param handling
+from fastapi import APIRouter, Query
 
-from mock_data import MOCK_CENTERS
+from mock_data import MOCK_CENTERS, DISPOSAL_INSTRUCTIONS
 
 router = APIRouter()
 
-# ==========================================
-# CATEGORY-TO-KEYWORD MAPPING
-# ==========================================
-
-# TODO: Refine these keywords based on local search testing to ensure high-quality results.
+# Mapping categories to specific Google keywords
 CATEGORY_KEYWORDS = {
-    "plastic": "plastic recycling center OR municipal recycling bin",
-    "organic": "compost drop off OR organic waste collection",
-    "e-waste": "electronics recycling OR battery disposal OR e-waste hub",
-    "cardboard": "paper recycling OR cardboard collection center",
-    "metal": "scrap metal yard OR metal recycling center"
+    "plastic": "plastic recycling center OR municipal dry waste bin",
+    "organic": "compost drop off OR organic waste collection green bin",
+    "e-waste": "electronics recycling OR battery disposal center",
+    "cardboard": "paper and cardboard recycling center",
+    "metal": "scrap metal yard OR metal recycling"
 }
 
 @router.get("/centers")
 async def get_centers(
     lat: float, 
     lng: float, 
-    category: str = Query(None) # Make category optional to prevent crashes
+    category: str = Query(None)
 ):
     api_key = os.getenv("GOOGLE_PLACES_API_KEY")
     
-    # 1. Determine Search Keyword
-    # Default to a broad search if no category is provided
+    # Determine Search Keyword
     base_keyword = "recycling center"
     if category:
         base_keyword = CATEGORY_KEYWORDS.get(category.lower(), "recycling center")
@@ -37,31 +32,34 @@ async def get_centers(
     if not api_key or api_key == "your_actual_api_key_here":
         return {
             "user_location": {"lat": lat, "lng": lng},
-            "category_searched": category,
             "results": MOCK_CENTERS,
-            "is_fallback": True
+            "is_fallback": True,
+            "reason": "Missing API Key"
         }
 
     url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     params = {
         "location": f"{lat},{lng}",
-        "radius": 5000,
-        "keyword": base_keyword, # Now using the specific category keyword
-        "key": api_key
+        "keyword": base_keyword,
+        "key": api_key,
+        "rankby": "distance" # Optimization: Finds the absolute closest ones
     }
     
     try:
         response = requests.get(url, params=params, timeout=5)
         data = response.json()
         
-        # FALLBACK 2: Google API Error
-        if data.get("status") not in ["OK", "ZERO_RESULTS"]:
+        # FALLBACK 2: API Error or EMPTY Results
+        # If status is not OK (e.g. Quota Error) OR if results list is empty
+        if data.get("status") != "OK" or not data.get("results"):
             return {
+                "user_location": {"lat": lat, "lng": lng},
                 "results": MOCK_CENTERS,
                 "is_fallback": True,
-                "message": "Google API Error. Showing general centers."
+                "reason": "No local results found or API error. Showing major NCR hubs."
             }
 
+        # Success Path: Parse the closest 5
         parsed_results = []
         for place in data.get("results", [])[:5]: 
             parsed_results.append({
@@ -81,9 +79,10 @@ async def get_centers(
         }
         
     except Exception as e:
-        # FALLBACK 3: Network error
+        # FALLBACK 3: Network Timeout
         return {
+            "user_location": {"lat": lat, "lng": lng},
             "results": MOCK_CENTERS,
             "is_fallback": True,
-            "error": str(e)
+            "reason": f"Connection error: {str(e)}"
         }
