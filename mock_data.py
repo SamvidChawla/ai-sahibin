@@ -1,8 +1,6 @@
 # ==========================================
-# MOCK DATABASE & STATIC CONTENT
+# STATIC CONTENT & FALLBACK DATA
 # ==========================================
-
-# TODO: I need to move this into a database or a proper CMS if we continue this project post-hackathon.
 
 DISPOSAL_INSTRUCTIONS = {
     "plastic": {
@@ -65,37 +63,30 @@ DISPOSAL_INSTRUCTIONS = {
     }
 }
 
-# TODO: I need to replace this mock list with live data from the Google Places API based on user coordinates.
-
+# Used as a fallback if the Google Places API fails or key is missing
 MOCK_CENTERS = [
     {
-        "id": "c1",
+        "id": "mock_1",
         "name": "Green City Recycling Facility",
         "address": "123 Eco Way, Tech District",
-        "distance_km": 1.2,
         "lat": 28.6139, 
         "lng": 77.2090, 
-        "accepted_materials": ["Plastic", "Cardboard", "Metal", "Glass"],
-        "operating_hours": "08:00 AM - 06:00 PM"
+        "rating": 4.5
     },
     {
-        "id": "c2",
+        "id": "mock_2",
         "name": "Tech E-Waste Hub",
         "address": "45 Circuit Dr, Innovation Park",
-        "distance_km": 3.5,
         "lat": 28.6150, 
         "lng": 77.2150,
-        "accepted_materials": ["E-Waste", "Batteries", "Cables"],
-        "operating_hours": "10:00 AM - 08:00 PM"
+        "rating": 4.8
     },
     {
-        "id": "c3",
-        "name": "Community Compost Collective",
+        "id": "mock_3",
+        "name": "Community Scrap Yard",
         "address": "88 Greenbelt Ave",
-        "distance_km": 5.0,
         "lat": 28.6000,
         "lng": 77.2000,
-        "accepted_materials": ["Organic", "Yard Waste"],
-        "operating_hours": "24/7 Drop-off"
+        "rating": 4.0
     }
 ]
