@@ -20,6 +20,12 @@ Improper waste sorting leads to contaminated recycling streams, environmental ha
 
 ---
 
+## 🔌 Beyond the Demo
+
+While this interface demonstrates the concept visually, the core ML pipeline is designed to be modular. The backend API can be integrated directly into IoT systems — enabling automated waste classification at the hardware level without any human input.
+
+---
+
 ## 🛠️ Tech Stack
 
 This project is structured as a **Monorepo**, housing both the frontend and backend in a unified format.
@@ -99,5 +105,5 @@ npm run dev
 
 > This is a demonstration prototype built for a hackathon and is not intended for production use.
 
-- **Stateless by design:** The app is Stateless by design. That said, we still recommend not uploading sensitive or personal images.
+- **Stateless by design:** The app is stateless by design. That said, we still recommend not uploading sensitive or personal images.
 - **Google Maps / Places API:** Location features are powered by Google Maps. Their own [Terms & Conditions](https://cloud.google.com/maps-platform/terms) and [Privacy Policy](https://policies.google.com/privacy) apply.
