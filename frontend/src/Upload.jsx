@@ -113,8 +113,8 @@ export default function Upload() {
               alignSelf: "flex-start", marginTop: "0.3rem",
             }}>AI</span>
           </div>
-          <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)", letterSpacing: "0.04em" }}>
-            Identify waste · Get disposal guidance
+          <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
+            Identify waste · Get disposal guidance and location
           </p>
         </motion.div>
 
@@ -264,9 +264,9 @@ export default function Upload() {
         </motion.div>
 
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
-          style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-dim)", letterSpacing: "0.03em" }}
+          style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-secondary)", letterSpacing: "0.03em" }}
         >
-          This App is meant for Demo Purposes Only
+          Demo only · Do not upload sensitive images · Location powered by Google Maps, subject to their policies
         </motion.p>
       </div>
     </motion.div>
