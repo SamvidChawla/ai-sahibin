@@ -13,7 +13,12 @@ DISPOSAL_INSTRUCTIONS = {
             "Crush the item to save space.",
             "Place in the blue municipal recycling bin (Dry Waste)."
         ],
-        "warning": "Do not mix with wet kitchen waste."
+        "warning": "Do not mix with wet kitchen waste.",
+        "carbon": {
+            "kg_co2": 6.0,
+            "label": "per kg if landfilled",
+            "tip": "Recycling plastic saves ~6kg CO₂ per kg vs landfill disposal."
+        }
     },
     "organic": {
         "category": "Organic",
@@ -24,7 +29,12 @@ DISPOSAL_INSTRUCTIONS = {
             "Store in a compostable bag or green bin (Wet Waste).",
             "Can be used for home composting or municipal collection."
         ],
-        "warning": "Avoid adding large amounts of dairy or meat to home compost."
+        "warning": "Avoid adding large amounts of dairy or meat to home compost.",
+        "carbon": {
+            "kg_co2": 1.5,
+            "label": "per kg if sent to landfill",
+            "tip": "Composting organic waste produces 1.5kg less CO₂ vs landfill methane."
+        }
     },
     "e-waste": {
         "category": "E-Waste",
@@ -35,7 +45,12 @@ DISPOSAL_INSTRUCTIONS = {
             "Tape over battery terminals.",
             "Take to a specialized e-waste collection center or authorized recycler."
         ],
-        "warning": "Lithium batteries can cause fires if crushed in garbage trucks."
+        "warning": "Lithium batteries can cause fires if crushed in garbage trucks.",
+        "carbon": {
+            "kg_co2": 20.0,
+            "label": "per device if landfilled",
+            "tip": "Proper e-waste recycling recovers rare metals and prevents ~20kg CO₂ equivalent."
+        }
     },
     "metal": {
         "category": "Metal",
@@ -45,7 +60,12 @@ DISPOSAL_INSTRUCTIONS = {
             "Rinse cans to remove food residue.",
             "Place in the blue municipal recycling bin (Dry Waste)."
         ],
-        "warning": "Ensure aerosol cans are completely empty before disposal."
+        "warning": "Ensure aerosol cans are completely empty before disposal.",
+        "carbon": {
+            "kg_co2": 9.0,
+            "label": "per kg saved by recycling",
+            "tip": "Recycling aluminium uses 95% less energy than producing new metal."
+        }
     },
     "glass": {
         "category": "Glass",
@@ -57,7 +77,12 @@ DISPOSAL_INSTRUCTIONS = {
             "Wrap safely if broken to prevent injury to sanitation workers.",
             "Place in the designated glass recycling bin."
         ],
-        "warning": "Mirrors, lightbulbs, and window glass are treated differently than bottle glass."
+        "warning": "Mirrors, lightbulbs, and window glass are treated differently than bottle glass.",
+        "carbon": {
+            "kg_co2": 0.3,
+            "label": "per bottle saved by recycling",
+            "tip": "Recycling one glass bottle saves enough energy to power a bulb for 4 hours."
+        }
     }
 }
 

@@ -73,6 +73,35 @@ export default function InfoCard({ info, loading, error, onRetry }) {
             ))}
           </motion.ol>
 
+          {info.carbon && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              style={{
+                background: "rgba(52,211,153,0.05)",
+                border: "1px solid rgba(52,211,153,0.15)",
+                borderRadius: "var(--radius-md)",
+                padding: "0.75rem 1rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.1rem", fontWeight: 700, color: "#34d399" }}>
+                  ~{info.carbon.kg_co2}kg
+                </span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-dim)" }}>
+                  CO₂ — {info.carbon.label}
+                </span>
+              </div>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                {info.carbon.tip}
+              </span>
+            </motion.div>
+          )}
+
           {info.warning && (
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
               style={{

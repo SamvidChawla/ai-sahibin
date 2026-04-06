@@ -73,7 +73,7 @@ export default function Upload() {
       let finalMessage = err.message || "An unexpected error occurred.";
 
       if (finalMessage.includes("timed out")) {
-        finalMessage = "Detection timed out — the model may be warming up. Please try again.";
+        finalMessage = "Detection timed out — the model may be warming up. Please try again after 2 minutes!";
       }
 
       toast({
