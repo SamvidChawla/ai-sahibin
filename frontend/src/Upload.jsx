@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { detectWaste } from "./services/api";
@@ -7,8 +7,8 @@ import { useToast } from "./components/Toast";
 const CATEGORIES = ["Plastic", "Organic", "E-waste", "Glass", "Metal"];
 
 const STAGES = [
-  { label: "Uploading image…",       ms: 900 },
-  { label: "Running ML inference…",  ms: 99999 },
+  { label: "Uploading image…",      ms: 900 },
+  { label: "Running ML inference…", ms: 99999 },
 ];
 
 const ease = [0.16, 1, 0.3, 1];
@@ -19,11 +19,96 @@ export default function Upload() {
   const [loading, setLoading]   = useState(false);
   const [stageIdx, setStageIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const inputRef   = useRef(null);
-  const stageTimer = useRef(null);
-  const navigate   = useNavigate();
-  const { toast }  = useToast();
 
+  // Camera modal state
+  const [cameraOpen, setCameraOpen]   = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+  const [streaming, setStreaming]     = useState(false);
+
+  const inputRef    = useRef(null);
+  const videoRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const streamRef   = useRef(null); // holds the MediaStream so we can stop it
+  const stageTimer  = useRef(null);
+  const navigate    = useNavigate();
+  const { toast }   = useToast();
+
+  // ── Stop camera stream ──────────────────────────────────────────────────
+  const stopStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setStreaming(false);
+  }, []);
+
+  // ── Open camera modal ───────────────────────────────────────────────────
+  const openCamera = useCallback(async (e) => {
+    e?.stopPropagation();
+    setCameraError(null);
+    setCameraOpen(true);
+  }, []);
+
+  // Start stream once modal is open and videoRef is mounted
+  useEffect(() => {
+    if (!cameraOpen) return;
+
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          setStreaming(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        let msg = "Camera unavailable.";
+        if (err.name === "NotAllowedError")  msg = "Camera permission denied. Allow access and try again.";
+        if (err.name === "NotFoundError")    msg = "No camera found on this device.";
+        if (err.name === "NotReadableError") msg = "Camera is in use by another app.";
+        setCameraError(msg);
+      }
+    };
+
+    // Small delay so the modal DOM is painted before we attach the stream
+    const t = setTimeout(start, 80);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [cameraOpen]);
+
+  // ── Close camera modal ──────────────────────────────────────────────────
+  const closeCamera = useCallback(() => {
+    stopStream();
+    setCameraOpen(false);
+    setCameraError(null);
+  }, [stopStream]);
+
+  // ── Capture frame from video ────────────────────────────────────────────
+  const captureFrame = useCallback(() => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !streaming) return;
+
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const captured = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
+      applyFile(captured);
+      closeCamera();
+    }, "image/jpeg", 0.92);
+  }, [streaming, closeCamera]); // applyFile added below via ref pattern
+
+  // ── File handling ───────────────────────────────────────────────────────
   const applyFile = useCallback((f) => {
     if (!f) return;
     if (!f.type.startsWith("image/")) {
@@ -46,41 +131,29 @@ export default function Upload() {
     setPreview(null);
   }, []);
 
+  // ── Upload & detect ─────────────────────────────────────────────────────
   const handleUpload = async () => {
     if (!file || loading) return;
     setLoading(true);
     setStageIdx(0);
     stageTimer.current = setTimeout(() => setStageIdx(1), STAGES[0].ms);
-    
+
     try {
       const data = await detectWaste(file);
 
-      // 1. Catch backend-handled errors (HTTP 200 but success = false)
-      if (data.success === false) {
+      if (data.success === false)
         throw new Error(data.message || "The AI could not process this image.");
-      }
-
-      // 2. Catch corrupted responses
-      if (!data.category) {
+      if (!data.category)
         throw new Error("Invalid response from ML model. Missing category.");
-      }
 
-      // Success! Route to the results page
       navigate("/result", { state: { ...data, imagePreview: preview } });
 
     } catch (err) {
-      // 3. Clean, native JS error handling (No Axios assumptions)
       let finalMessage = err.message || "An unexpected error occurred.";
-
-      if (finalMessage.includes("timed out")) {
+      if (finalMessage.includes("timed out"))
         finalMessage = "Detection timed out — the model may be warming up. Please try again after 2 minutes!";
-      }
 
-      toast({
-        type: "error",
-        message: finalMessage,
-        duration: 6000,
-      });
+      toast({ type: "error", message: finalMessage, duration: 6000 });
     } finally {
       clearTimeout(stageTimer.current);
       setLoading(false);
@@ -88,205 +161,387 @@ export default function Upload() {
     }
   };
 
+  // ── Render ──────────────────────────────────────────────────────────────
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.45, ease }}
-      style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", position: "relative" }}
-    >
-      {/* Background */}
-      <div className="dot-grid" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }} />
-      <div style={{
-        position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)",
-        width: 640, height: 480, borderRadius: "50%", zIndex: 0, pointerEvents: "none",
-        background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 65%)",
-        filter: "blur(40px)",
-      }} />
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, y: -12 }}
+        transition={{ duration: 0.45, ease }}
+        style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem", position: "relative" }}
+      >
+        {/* Background */}
+        <div className="dot-grid" style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none" }} />
+        <div style={{
+          position: "fixed", top: "20%", left: "50%", transform: "translateX(-50%)",
+          width: 640, height: 480, borderRadius: "50%", zIndex: 0, pointerEvents: "none",
+          background: "radial-gradient(ellipse, rgba(245,158,11,0.06) 0%, transparent 65%)",
+          filter: "blur(40px)",
+        }} />
 
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 440, display: "flex", flexDirection: "column", gap: "1.5rem" }}>
 
-        {/* Wordmark */}
-        <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.5, ease }}
-          style={{ textAlign: "center" }}
-        >
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "linear-gradient(135deg, #f59e0b, #d97706)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: "1rem", boxShadow: "0 4px 16px rgba(245,158,11,0.35)",
-            }}>♻</div>
-            <span style={{ fontFamily: "var(--font-display)", fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
-              SahiBin
-            </span>
-            <span style={{
-              fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--accent-text)",
-              background: "var(--accent-dim)", border: "1px solid var(--accent-border)",
-              padding: "0.12rem 0.45rem", borderRadius: 4, letterSpacing: "0.1em",
-              alignSelf: "flex-start", marginTop: "0.3rem",
-            }}>AI</span>
-          </div>
-          <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
-            Identify waste · Get disposal guidance and location
-          </p>
-        </motion.div>
+          {/* Wordmark */}
+          <motion.div
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.5, ease }}
+            style={{ textAlign: "center" }}
+          >
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "1rem", boxShadow: "0 4px 16px rgba(245,158,11,0.35)",
+              }}>♻</div>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
+                SahiBin
+              </span>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--accent-text)",
+                background: "var(--accent-dim)", border: "1px solid var(--accent-border)",
+                padding: "0.12rem 0.45rem", borderRadius: 4, letterSpacing: "0.1em",
+                alignSelf: "flex-start", marginTop: "0.3rem",
+              }}>AI</span>
+            </div>
+            <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
+              Identify waste · Get disposal guidance and location
+            </p>
+          </motion.div>
 
-        {/* Drop zone */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.55, ease }}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          onClick={() => !preview && !loading && inputRef.current?.click()}
-          style={{
-            background: dragOver ? "rgba(245,158,11,0.04)" : "var(--bg-card)",
-            border: `1px ${dragOver ? "solid" : "dashed"} ${dragOver ? "rgba(245,158,11,0.4)" : "var(--border-soft)"}`,
-            borderRadius: "var(--radius-xl)",
-            cursor: preview || loading ? "default" : "pointer",
-            overflow: "hidden",
-            transition: "border-color 0.2s, background 0.2s, box-shadow 0.2s",
-            boxShadow: dragOver ? "0 0 0 3px rgba(245,158,11,0.12)" : "var(--shadow-card)",
-          }}
-        >
-          <AnimatePresence mode="wait">
-            {loading && (
-              <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                style={{ padding: "3rem 2rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.25rem" }}
-              >
-                {/* Spinner */}
-                <div style={{ position: "relative", width: 48, height: 48 }}>
-                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-                    style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "1.5px solid var(--border-dim)", borderTopColor: "var(--accent)" }}
-                  />
-                  <div style={{ position: "absolute", inset: 8, borderRadius: "50%", border: "1px solid var(--border-dim)", borderTopColor: "rgba(245,158,11,0.35)" }} />
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <AnimatePresence mode="wait">
-                    <motion.p key={stageIdx} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                      style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "0.25rem" }}
-                    >{STAGES[stageIdx].label}</motion.p>
-                  </AnimatePresence>
-                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.63rem", color: "var(--text-muted)" }}>
-                    This may take a few seconds
-                  </p>
-                </div>
-              </motion.div>
-            )}
-
-            {!loading && preview && (
-              <motion.div key="preview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                style={{ position: "relative" }}
-              >
-                <img src={preview} alt="Waste preview"
-                  style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }} />
-                <div style={{
-                  position: "absolute", inset: 0,
-                  background: "linear-gradient(to bottom, transparent 50%, rgba(13,13,15,0.9) 100%)",
-                  pointerEvents: "none",
-                }} />
-                <div style={{ position: "absolute", bottom: "0.875rem", left: "1rem", right: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.65rem", color: "rgba(161,159,154,0.8)" }}>
-                    {file?.name} · {file ? (file.size / 1024).toFixed(0) : 0} KB
-                  </span>
-                  <motion.button whileHover={{ background: "rgba(248,113,113,0.6)" }} whileTap={{ scale: 0.95 }}
-                    onClick={clearFile}
-                    style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", color: "var(--text-primary)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-sm)", padding: "0.22rem 0.6rem", fontFamily: "var(--font-mono)", fontSize: "0.63rem", cursor: "pointer", transition: "background 0.15s" }}
-                  >✕ remove</motion.button>
-                </div>
-              </motion.div>
-            )}
-
-            {!loading && !preview && (
-              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                style={{ padding: "2.75rem 2rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}
-              >
-                <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                  style={{
-                    width: 56, height: 56, borderRadius: 14, border: "1px dashed var(--border-mid)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "var(--text-dim)", background: "var(--bg-elevated)",
-                  }}
-                >
-                  <svg width="22" height="22" fill="none" viewBox="0 0 22 22">
-                    <path d="M11 3v14M6 8l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M3 17h16" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.4"/>
-                  </svg>
-                </motion.div>
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontWeight: 500, fontSize: "0.88rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                    Drop your waste image here
-                  </p>
-                  <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.67rem", color: "var(--text-muted)" }}>
-                    or click to browse · JPG · PNG 
-                  </p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-        <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => applyFile(e.target.files[0])} />
-
-        {/* Category pills */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-          style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", justifyContent: "center" }}
-        >
-          {CATEGORIES.map((cat, i) => (
-            <motion.span key={cat}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.32 + i * 0.05, ease }}
-              style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)", background: "var(--bg-elevated)", border: "1px solid var(--border-dim)", padding: "0.18rem 0.55rem", borderRadius: 999, letterSpacing: "0.04em" }}
-            >{cat}</motion.span>
-          ))}
-        </motion.div>
-
-        {/* CTA */}
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, ease }}>
-          <motion.button
-            onClick={handleUpload}
-            disabled={!file || loading}
-            whileHover={file && !loading ? { y: -2, boxShadow: "0 8px 32px rgba(245,158,11,0.28), 0 0 0 1px rgba(245,158,11,0.4)" } : {}}
-            whileTap={file && !loading ? { scale: 0.98, y: 0 } : {}}
+          {/* Drop zone */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, duration: 0.55, ease }}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => !preview && !loading && inputRef.current?.click()}
             style={{
-              width: "100%", padding: "0.9rem 1.5rem",
-              background: file && !loading
-                ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-                : "var(--bg-elevated)",
-              color: file && !loading ? "#0d0d0f" : "var(--text-muted)",
-              border: `1px solid ${file && !loading ? "transparent" : "var(--border-dim)"}`,
-              borderRadius: "var(--radius-md)",
-              fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.92rem",
-              cursor: file && !loading ? "pointer" : "not-allowed",
-              transition: "background 0.25s, color 0.2s, border-color 0.2s",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
-              letterSpacing: "-0.01em",
+              background: dragOver ? "rgba(245,158,11,0.04)" : "var(--bg-card)",
+              border: `1px ${dragOver ? "solid" : "dashed"} ${dragOver ? "rgba(245,158,11,0.4)" : "var(--border-soft)"}`,
+              borderRadius: "var(--radius-xl)",
+              cursor: preview || loading ? "default" : "pointer",
+              overflow: "hidden",
+              transition: "border-color 0.2s, background 0.2s, box-shadow 0.2s",
+              boxShadow: dragOver ? "0 0 0 3px rgba(245,158,11,0.12)" : "var(--shadow-card)",
             }}
           >
-            {loading ? (
-              <>
-                <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.7, repeat: Infinity, ease: "linear" }}
-                  style={{ width: 14, height: 14, border: "1.5px solid rgba(13,13,15,0.3)", borderTopColor: "#0d0d0f", borderRadius: "50%", display: "inline-block" }}
-                />
-                {STAGES[stageIdx].label}
-              </>
-            ) : "Analyze Waste →"}
-          </motion.button>
-        </motion.div>
+            <AnimatePresence mode="wait">
 
-        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
-          style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-secondary)", letterSpacing: "0.03em" }}
-        >
-          Demo only · Do not upload sensitive images · Location powered by Google Maps, subject to their policies
-        </motion.p>
-      </div>
-    </motion.div>
+              {/* ── Loading ── */}
+              {loading && (
+                <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  style={{ padding: "3rem 2rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1.25rem" }}
+                >
+                  <div style={{ position: "relative", width: 48, height: 48 }}>
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                      style={{ position: "absolute", inset: 0, borderRadius: "50%", border: "1.5px solid var(--border-dim)", borderTopColor: "var(--accent)" }}
+                    />
+                    <div style={{ position: "absolute", inset: 8, borderRadius: "50%", border: "1px solid var(--border-dim)", borderTopColor: "rgba(245,158,11,0.35)" }} />
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <AnimatePresence mode="wait">
+                      <motion.p key={stageIdx} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                        style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "0.25rem" }}
+                      >{STAGES[stageIdx].label}</motion.p>
+                    </AnimatePresence>
+                    <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.63rem", color: "var(--text-muted)" }}>
+                      This may take a few seconds
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── Preview ── */}
+              {!loading && preview && (
+                <motion.div key="preview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  style={{ position: "relative" }}
+                >
+                  <img src={preview} alt="Waste preview"
+                    style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }} />
+                  <div style={{
+                    position: "absolute", inset: 0,
+                    background: "linear-gradient(to bottom, transparent 50%, rgba(13,13,15,0.9) 100%)",
+                    pointerEvents: "none",
+                  }} />
+                  <div style={{ position: "absolute", bottom: "0.875rem", left: "1rem", right: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.65rem", color: "rgba(161,159,154,0.8)" }}>
+                      {file?.name} · {file ? (file.size / 1024).toFixed(0) : 0} KB
+                    </span>
+                    <motion.button whileHover={{ background: "rgba(248,113,113,0.6)" }} whileTap={{ scale: 0.95 }}
+                      onClick={clearFile}
+                      style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", color: "var(--text-primary)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-sm)", padding: "0.22rem 0.6rem", fontFamily: "var(--font-mono)", fontSize: "0.63rem", cursor: "pointer", transition: "background 0.15s" }}
+                    >✕ remove</motion.button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── Empty ── */}
+              {!loading && !preview && (
+                <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  style={{ padding: "2.75rem 2rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}
+                >
+                  <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                    style={{
+                      width: 56, height: 56, borderRadius: 14, border: "1px dashed var(--border-mid)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "var(--text-dim)", background: "var(--bg-elevated)",
+                    }}
+                  >
+                    <svg width="22" height="22" fill="none" viewBox="0 0 22 22">
+                      <path d="M11 3v14M6 8l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M3 17h16" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.4"/>
+                    </svg>
+                  </motion.div>
+
+                  <div style={{ textAlign: "center" }}>
+                    <p style={{ fontWeight: 500, fontSize: "0.88rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
+                      Drop your waste image here
+                    </p>
+                    <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.67rem", color: "var(--text-muted)", marginBottom: "0.875rem" }}>
+                      or click to browse · JPG · PNG
+                    </p>
+
+                    {/* Camera button */}
+                    <motion.button
+                      onClick={openCamera}
+                      whileHover={{ borderColor: "rgba(245,158,11,0.45)", color: "var(--accent-text)" }}
+                      whileTap={{ scale: 0.97 }}
+                      style={{
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--border-dim)",
+                        color: "var(--text-secondary)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.72rem",
+                        padding: "0.45rem 1.1rem",
+                        borderRadius: "var(--radius-sm)",
+                        cursor: "pointer",
+                        letterSpacing: "0.03em",
+                        transition: "border-color 0.2s, color 0.2s",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.45rem",
+                      }}
+                    >
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#f59e0b", flexShrink: 0, display: "inline-block" }} />
+                      Real Time Detection with camera
+                    </motion.button>
+                  </div>
+                </motion.div>
+              )}
+
+            </AnimatePresence>
+          </motion.div>
+
+          {/* Hidden file input */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => applyFile(e.target.files[0])}
+          />
+
+          {/* Hidden canvas for frame capture */}
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+
+          {/* Category pills */}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+            style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", justifyContent: "center" }}
+          >
+            {CATEGORIES.map((cat, i) => (
+              <motion.span key={cat}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.32 + i * 0.05, ease }}
+                style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)", background: "var(--bg-elevated)", border: "1px solid var(--border-dim)", padding: "0.18rem 0.55rem", borderRadius: 999, letterSpacing: "0.04em" }}
+              >{cat}</motion.span>
+            ))}
+          </motion.div>
+
+          {/* CTA */}
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38, ease }}>
+            <motion.button
+              onClick={handleUpload}
+              disabled={!file || loading}
+              whileHover={file && !loading ? { y: -2, boxShadow: "0 8px 32px rgba(245,158,11,0.28), 0 0 0 1px rgba(245,158,11,0.4)" } : {}}
+              whileTap={file && !loading ? { scale: 0.98, y: 0 } : {}}
+              style={{
+                width: "100%", padding: "0.9rem 1.5rem",
+                background: file && !loading
+                  ? "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+                  : "var(--bg-elevated)",
+                color: file && !loading ? "#0d0d0f" : "var(--text-muted)",
+                border: `1px solid ${file && !loading ? "transparent" : "var(--border-dim)"}`,
+                borderRadius: "var(--radius-md)",
+                fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.92rem",
+                cursor: file && !loading ? "pointer" : "not-allowed",
+                transition: "background 0.25s, color 0.2s, border-color 0.2s",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {loading ? (
+                <>
+                  <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.7, repeat: Infinity, ease: "linear" }}
+                    style={{ width: 14, height: 14, border: "1.5px solid rgba(13,13,15,0.3)", borderTopColor: "#0d0d0f", borderRadius: "50%", display: "inline-block" }}
+                  />
+                  {STAGES[stageIdx].label}
+                </>
+              ) : "Analyze Waste →"}
+            </motion.button>
+          </motion.div>
+
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
+            style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-secondary)", letterSpacing: "0.03em" }}
+          >
+            Demo only · Do not upload sensitive images · Location powered by Google Maps, subject to their policies
+          </motion.p>
+        </div>
+      </motion.div>
+
+      {/* ── Camera Modal ──────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {cameraOpen && (
+          <motion.div
+            key="camera-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={closeCamera}
+            style={{
+              position: "fixed", inset: 0, zIndex: 100,
+              background: "rgba(0,0,0,0.85)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "1.5rem",
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              transition={{ duration: 0.25, ease }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-dim)",
+                borderRadius: "var(--radius-xl)",
+                overflow: "hidden",
+                width: "100%",
+                maxWidth: 560,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Modal header */}
+              <div style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "1rem 1.25rem",
+                borderBottom: "1px solid var(--border-dim)",
+                background: "var(--bg-elevated)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: streaming ? "#34d399" : "#f59e0b", display: "inline-block" }} />
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
+                    {streaming ? "Camera ready" : cameraError ? "Camera error" : "Starting camera…"}
+                  </span>
+                </div>
+                <motion.button
+                  onClick={closeCamera}
+                  whileHover={{ color: "var(--text-primary)" }}
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: "0.72rem", padding: "0.2rem 0.5rem" }}
+                >
+                  ✕ Close
+                </motion.button>
+              </div>
+
+              {/* Video feed */}
+              <div style={{ position: "relative", background: "#000", aspectRatio: "16/9" }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+
+                {/* Viewfinder overlay */}
+                {streaming && (
+                  <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                    {/* Corner brackets */}
+                    {[
+                      { top: "20%", left: "20%",  borderTop: "2px solid rgba(245,158,11,0.7)", borderLeft: "2px solid rgba(245,158,11,0.7)" },
+                      { top: "20%", right: "20%", borderTop: "2px solid rgba(245,158,11,0.7)", borderRight: "2px solid rgba(245,158,11,0.7)" },
+                      { bottom: "20%", left: "20%",  borderBottom: "2px solid rgba(245,158,11,0.7)", borderLeft: "2px solid rgba(245,158,11,0.7)" },
+                      { bottom: "20%", right: "20%", borderBottom: "2px solid rgba(245,158,11,0.7)", borderRight: "2px solid rgba(245,158,11,0.7)" },
+                    ].map((s, i) => (
+                      <div key={i} style={{ position: "absolute", width: 24, height: 24, ...s }} />
+                    ))}
+                    {/* Scan line */}
+                    <motion.div
+                      animate={{ top: ["22%", "78%", "22%"] }}
+                      transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                      style={{ position: "absolute", left: "20%", right: "20%", height: 1, background: "rgba(245,158,11,0.5)" }}
+                    />
+                  </div>
+                )}
+
+                {/* Error state */}
+                {cameraError && (
+                  <div style={{
+                    position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center", gap: "0.625rem",
+                    background: "rgba(0,0,0,0.7)", padding: "1.5rem", textAlign: "center",
+                  }}>
+                    <span style={{ fontSize: "1.5rem" }}>⚠</span>
+                    <p style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "#f87171" }}>{cameraError}</p>
+                  </div>
+                )}
+
+                {/* Starting state */}
+                {!streaming && !cameraError && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <motion.div
+                      animate={{ opacity: [1, 0.3, 1] }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
+                      style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--text-dim)" }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Capture button */}
+              <div style={{ padding: "1.25rem", display: "flex", justifyContent: "center", background: "var(--bg-elevated)" }}>
+                <motion.button
+                  onClick={captureFrame}
+                  disabled={!streaming}
+                  whileHover={streaming ? { scale: 1.04 } : {}}
+                  whileTap={streaming ? { scale: 0.96 } : {}}
+                  style={{
+                    width: 60, height: 60, borderRadius: "50%",
+                    background: streaming ? "linear-gradient(135deg, #f59e0b, #d97706)" : "var(--bg-elevated)",
+                    border: `3px solid ${streaming ? "rgba(245,158,11,0.3)" : "var(--border-dim)"}`,
+                    cursor: streaming ? "pointer" : "not-allowed",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: streaming ? "0 0 0 6px rgba(245,158,11,0.1)" : "none",
+                    transition: "background 0.2s, border-color 0.2s, box-shadow 0.2s",
+                  }}
+                >
+                  <div style={{
+                    width: 22, height: 22, borderRadius: "50%",
+                    background: streaming ? "#0d0d0f" : "var(--border-dim)",
+                  }} />
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

@@ -92,7 +92,7 @@ export default function InfoCard({ info, loading, error, onRetry }) {
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "1.1rem", fontWeight: 700, color: "#34d399" }}>
                   ~{info.carbon.kg_co2}kg
                 </span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-dim)" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-primary)" }}>
                   CO₂ — {info.carbon.label}
                 </span>
               </div>
