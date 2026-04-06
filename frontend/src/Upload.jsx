@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { detectWaste } from "./services/api";
 import { useToast } from "./components/Toast";
 
-const CATEGORIES = ["Plastic", "Organic", "E-waste", "Glass", "Metal", "Cardboard"];
+const CATEGORIES = ["Plastic", "Organic", "E-waste", "Glass", "Metal"];
 
 const STAGES = [
   { label: "Uploading image…",       ms: 900 },
@@ -51,16 +51,34 @@ export default function Upload() {
     setLoading(true);
     setStageIdx(0);
     stageTimer.current = setTimeout(() => setStageIdx(1), STAGES[0].ms);
+    
     try {
       const data = await detectWaste(file);
-      if (!data.category) throw new Error("Invalid response from ML model.");
+
+      // 1. Catch backend-handled errors (HTTP 200 but success = false)
+      if (data.success === false) {
+        throw new Error(data.message || "The AI could not process this image.");
+      }
+
+      // 2. Catch corrupted responses
+      if (!data.category) {
+        throw new Error("Invalid response from ML model. Missing category.");
+      }
+
+      // Success! Route to the results page
       navigate("/result", { state: { ...data, imagePreview: preview } });
+
     } catch (err) {
+      // 3. Clean, native JS error handling (No Axios assumptions)
+      let finalMessage = err.message || "An unexpected error occurred.";
+
+      if (finalMessage.includes("timed out")) {
+        finalMessage = "Detection timed out — the model may be warming up. Please try again.";
+      }
+
       toast({
         type: "error",
-        message: err.message?.includes("timed out")
-          ? "Detection timed out — the model may be warming up. Try again."
-          : `Detection failed: ${err.message || "Unknown error"}`,
+        message: finalMessage,
         duration: 6000,
       });
     } finally {

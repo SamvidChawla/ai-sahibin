@@ -37,17 +37,6 @@ DISPOSAL_INSTRUCTIONS = {
         ],
         "warning": "Lithium batteries can cause fires if crushed in garbage trucks."
     },
-    "cardboard": {
-        "category": "Cardboard",
-        "recyclable": True,
-        "hazard_level": "Low",
-        "steps": [
-            "Remove all packing tape and styrofoam.",
-            "Flatten the box completely.",
-            "Keep dry; wet cardboard is often rejected by recyclers."
-        ],
-        "warning": "Pizza boxes with heavy grease belong in the organic bin."
-    },
     "metal": {
         "category": "Metal",
         "recyclable": True,

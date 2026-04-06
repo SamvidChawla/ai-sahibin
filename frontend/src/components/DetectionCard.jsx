@@ -7,9 +7,8 @@ const CAT = {
   plastic:   { color: "#60a5fa", bg: "rgba(96,165,250,0.1)",  border: "rgba(96,165,250,0.2)",  icon: "🧴", label: "Plastic"   },
   organic:   { color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.2)",  icon: "🌿", label: "Organic"   },
   "e-waste": { color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.25)", icon: "💻", label: "E-waste"   },
-  glass:     { color: "#22d3ee", bg: "rgba(34,211,238,0.1)",  border: "rgba(34,211,238,0.2)",  icon: "🫙", label: "Glass"     },
+  glass:     { color: "#22d3ee", bg: "rgba(34,211,238,0.1)",  border: "rgba(34,211,238,0.2)",  icon: "🔳", label: "Glass"     },
   metal:     { color: "#a78bfa", bg: "rgba(167,139,250,0.1)", border: "rgba(167,139,250,0.2)", icon: "🔩", label: "Metal"     },
-  cardboard: { color: "#fb923c", bg: "rgba(251,146,60,0.1)",  border: "rgba(251,146,60,0.2)",  icon: "📦", label: "Cardboard" },
 };
 const DEFAULT_CAT = { color: "#9ca3af", bg: "rgba(156,163,175,0.1)", border: "rgba(156,163,175,0.2)", icon: "🗑", label: "Unknown" };
 
