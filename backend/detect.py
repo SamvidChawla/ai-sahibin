@@ -90,7 +90,7 @@ def detect_waste(request: Request, file: UploadFile = File(...)):
 
         raw_label = ML_CLASSES[class_id]
         
-        if confidence < 0.45:
+        if confidence < 0.49:
             return {"success": False, "message": "AI is unsure. Please get closer to the object and ensure good lighting."}
 
         detected_category = ML_TO_BACKEND_MAP.get(raw_label, "plastic")
